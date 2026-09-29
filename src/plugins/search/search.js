@@ -11,7 +11,7 @@ var pagesList = {
 
 module.exports = {
     pagesList: pagesList,
-    consumes: ["app"],
+    consumes: ["app", "okLib"],
     provides: ["plugin_search"],
     setup: function(options, imports, register) {
         var init = false;
@@ -22,8 +22,6 @@ module.exports = {
             init: function(app, $page, pathname) {
                 init = true;
 
-                // var onlykeyApi = app.onlykeyApi;
-                page.p2g = app.onlykeyApi.pgp();
 
                 var params = app.pages.getAllUrlParams();
 
@@ -43,12 +41,33 @@ module.exports = {
                 if (!init)
                     return page.init(app, $page, pathname);
 
-                // var pgpDecoder = require("../../pgp-decoder/pgp.decoder.js");
-                var pgpDecoder = imports.app.pgpDecoder;
+                // ON node-onlykey-lib: keys are read with the library's openpgp
+                // (was kbpgp's getPublicKeyInfo), and the Gravatar hash is the
+                // library's vendored MD5 (was forge). No device is involved.
+                var openpgp = require("node-onlykey-lib/crypto/pgp");
+                var md5 = require("node-onlykey-lib/vendor/@noble/hashes/legacy.js").md5;
+                var bytesToHex = require("node-onlykey-lib/vendor/@noble/hashes/utils.js").bytesToHex;
+                // kbpgp's names for the OpenPGP public-key algorithm ids, as this page showed them.
+                var KEY_TYPES = { 1: "RSA", 2: "RSA_ENCRYPT_ONLY", 3: "RSA_SIGN_ONLY", 16: "ELGAMAL", 17: "DSA",
+                    18: "ECDH", 19: "ECDSA", 20: "ELGAMAL_SIGN_AND_ENCRYPT", 22: "EDDSA", 25: "X25519", 27: "ED25519" };
+                function md5Hex(text) { return bytesToHex(md5(new TextEncoder().encode(text))); }
+                function keyInfo(armored, cb) {
+                    openpgp.readKey({ armoredKey: armored }).then(function(key) {
+                        var uid = key.users[0] && key.users[0].userID || {};
+                        var id = key.getKeyID().toHex().toUpperCase();
+                        cb(null, {
+                            email: uid.email,
+                            username: uid.name,
+                            keyid: "0x" + id,
+                            keyid_short: id.slice(-8),
+                            fingerprint: key.getFingerprint().toUpperCase(),
+                            keyType: KEY_TYPES[openpgp.enums.write(openpgp.enums.publicKey, key.keyPacket.algorithm)] || key.getAlgorithmInfo().algorithm,
+                        });
+                    }, function(err) { cb(err); });
+                }
 
                 var default_anonymous_email = "onlykey@crp.to";
 
-                var forge = app.forge;
                 var $ = app.$;
 
                 // The fieldset used to get a random 'bright' rgba background on
@@ -117,25 +136,7 @@ module.exports = {
                     // console.log(decodedkey);
                     //use pgpDecoder to grab keyid and search keyid instead of user.q
                     if (user.q.slice(0, 10) == "-----BEGIN") {
-                        var decodedkey = pgpDecoder(user.q);
-                        app.pages.state.replace({ pathname: pathname }, $("title").text(), "./search?q=" + escape(user.q));
-                        console.log(decodedkey);
-
-                        for (var i in decodedkey) {
-                            if (decodedkey[i]) {
-                                console.log(decodedkey[i]);
-
-                                if (decodedkey[i].algorithm)
-                                    console.log(decodedkey[i].algorithm.toJSON());
-
-                                if (decodedkey[i].hashAlgorithm)
-                                    console.log(decodedkey[i].hashAlgorithm.toJSON());
-
-                                if (decodedkey[i].packet)
-                                    console.log(decodedkey[i].packet.toJSON());
-                            }
-                            console.log("--------");
-                        }
+                        keyInfo(user.q, function(err, info) { console.log(err || info); });
 
                         return;
                     }
@@ -149,7 +150,7 @@ module.exports = {
                             if ($user && !($user.indexOf("0x") == 0) && !$user.split("@")[1])
                                 $user += "@protonmail.com";
 
-                            var response_text = await app.onlykeyApi.api.getKey($user, "protonmail");
+                            var response_text = await app.okLib.onlykeyApi.api.getKey($user, "protonmail");
                             console.log(response_text);
 
 
@@ -157,25 +158,22 @@ module.exports = {
 
 
 
-                            page.p2g.getPublicKeyInfo(response_text, function(err, theKey) {
+                            keyInfo(response_text, function(err, theKey) {
                                 if (theKey) {
 
-                                    var email = theKey.pgp.userids[0].components.email;
-                                    var username = theKey.pgp.userids[0].components.username;
-                                    var keyid = "0x" + theKey.pgp.key_manager.get_pgp_key_id().toString("hex").toUpperCase();
-                                    var keyid_short = theKey.pgp.key_manager.get_pgp_short_key_id();
-                                    var fingerprint = theKey.pgp.get_fingerprint().toString("hex").toUpperCase();
-                                    var keyType = theKey.pgp.primary.key.pub.type;
+                                    var email = theKey.email;
+                                    var username = theKey.username;
+                                    var keyid = theKey.keyid;
+                                    var keyid_short = theKey.keyid_short;
+                                    var fingerprint = theKey.fingerprint;
+                                    var keyType = theKey.keyType;
 
-                                    sl.leftDiv.append("<img src='https://www.gravatar.com/avatar/" + forge.md5.create().update(email).digest().toHex() + "?s=1024default=https%3A%2F%2Fgravatar.com%2Favatar%2F" + forge.md5.create().update(default_anonymous_email).digest().toHex() + "' />");
+                                    sl.leftDiv.append("<img src='https://www.gravatar.com/avatar/" + md5Hex(email) + "?s=1024default=https%3A%2F%2Fgravatar.com%2Favatar%2F" + md5Hex(default_anonymous_email) + "' />");
                                     sl.rightDiv.append("<font color='red'>Protonmail Username = " + username + "</font>");
                                     sl.rightDiv.append("<p>"+email+"</p>");
                                     sl.rightDiv.append("<p>GPG KeyID: " + keyid + " (" + keyid_short + ")" + "<br/>Fingerprint: " + fingerprint + "</p>");
                                     
-                                    for (var b in app.kbpgp.const.openpgp.public_key_algorithms) {
-                                        if (app.kbpgp.const.openpgp.public_key_algorithms[b] == keyType)
-                                            sl.rightDiv.append("<p>KeyType " + b + "</p>");
-                                    }
+                                    sl.rightDiv.append("<p>KeyType " + keyType + "</p>");
 
                                     sl.rightDiv.append("Send Encrypted <a class='btn btn-success' target='_blank' href='./encrypt?type=e&recipients=" + username + "'>Message</a> <a class='btn btn-success' target='_blank' href='./encrypt-file?type=e&recipients=" + username + "'>File</a><br>");
 
@@ -227,18 +225,18 @@ module.exports = {
                                                         if (listItem.username) {
 
                                                             var url = 'https://keybase.io/' + listItem.username + '/pgp_keys.asc';
-                                                            var response_text = await app.onlykeyApi.api.getKey(url);
+                                                            var response_text = await app.okLib.onlykeyApi.api.getKey(url);
 
-                                                            page.p2g.getPublicKeyInfo(response_text, function(err, theKey) {
+                                                            keyInfo(response_text, function(err, theKey) {
                                                                 if (theKey) {
 
 
-                                                                    var email = theKey.pgp.userids[0].components.email;
-                                                                    var username = theKey.pgp.userids[0].components.username;
-                                                                    var keyid = "0x" + theKey.pgp.key_manager.get_pgp_key_id().toString("hex").toUpperCase();
-                                                                    var keyid_short = theKey.pgp.key_manager.get_pgp_short_key_id();
-                                                                    var fingerprint = theKey.pgp.get_fingerprint().toString("hex").toUpperCase();
-                                                                    var keyType = theKey.pgp.primary.key.pub.type;
+                                                                    var email = theKey.email;
+                                                                    var username = theKey.username;
+                                                                    var keyid = theKey.keyid;
+                                                                    var keyid_short = theKey.keyid_short;
+                                                                    var fingerprint = theKey.fingerprint;
+                                                                    var keyType = theKey.keyType;
 
                                                                     var sl = searchLayout();
                                                                     if (listItem.picture_url != null)
@@ -252,10 +250,7 @@ module.exports = {
                                                                     sl.rightDiv.append("View Keybase Profile <a href='https://keybase.io/" + listItem.username + "'>Here</a>");
                                                                     sl.rightDiv.append("<p>GPG KeyID: " + keyid + " (" + keyid_short + ")" + "<br/>Fingerprint: " + fingerprint + "</p>");
                                                                     
-                                                                    for (var b in app.kbpgp.const.openpgp.public_key_algorithms) {
-                                                                        if (app.kbpgp.const.openpgp.public_key_algorithms[b] == keyType)
-                                                                            sl.rightDiv.append("<p>KeyType " + b + "</p>");
-                                                                    }
+                                                                    sl.rightDiv.append("<p>KeyType " + keyType + "</p>");
                                                                     
                                                                     for (var i in element.services_summary) {
                                                                         var srv = element.services_summary[i].service_name.toUpperCase();
