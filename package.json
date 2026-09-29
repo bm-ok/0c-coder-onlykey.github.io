@@ -51,7 +51,7 @@
   "dependencies": {
     "express": "^4.17.1",
     "gun": "^0.2020.520",
-    "node-onlykey-lib": "github:bmatusiak/node-onlykey-lib#5d1145442745c5d338ce768cd4eb3151ac2fab38",
+    "node-onlykey-lib": "github:bmatusiak/node-onlykey-lib#deca473354c61f6a2bd5ece5ea83a8d60661857d",
     "tapable": "^1.1.3",
     "xterm": "^4.8.1",
     "xterm-addon-fit": "^0.4.0"
