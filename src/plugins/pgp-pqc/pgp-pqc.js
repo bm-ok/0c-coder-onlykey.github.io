@@ -23,7 +23,7 @@ var pagesList = {
 
 module.exports = {
     pagesList: pagesList,
-    consumes: ["app"],
+    consumes: ["app", "okLib"],
     provides: ["plugin_pgp-pqc"],
     setup: function(options, imports, register) {
 
@@ -35,8 +35,13 @@ module.exports = {
         // resolves under webpack, and composite_pgp.js only makes sense
         // once openpgp is loadable, so both must stay deferred.
         var init = false;
-        var openpgp = require("../../onlykey-fido2/onlykey/openpgp_loader.js");
-        var compositePgp = require("../../onlykey-fido2/onlykey/composite_pgp.js");
+        // ON node-onlykey-lib: the library's copy of the PQC openpgp fork
+        // (the same fork, require()able - no raw-loader/eval step) and its
+        // composite hooks, ported from this app's composite_pgp.js with the
+        // same (openpgp, ok, slot) shape. `ok` is the library's okcrypto,
+        // whose composite_sign/composite_decrypt run over the WebAuthn tunnel.
+        var openpgp = require("node-onlykey-lib/crypto/pgp");
+        var compositePgp = require("node-onlykey-lib/crypto").composite;
         var modeTabs = require("../pages/mode-tabs.js");
         var page = {
             init: function(app, $page, pathname) {
@@ -52,8 +57,7 @@ module.exports = {
                 // See password-generator.js's comment on this same call -
                 // onlykey3rd() takes no arguments in the currently-bundled
                 // library version, kept only to match history.js's call.
-                var onlykey3rd = app.onlykey3rd;
-                var ok = onlykey3rd(1, 0);
+                var okLib = app.okLib;
                 var $ = app.$;
 
                 // Mirror the device's own progress into whichever status line
@@ -76,9 +80,23 @@ module.exports = {
                         .then(function(r) { activeStatusEl = null; return r; },
                               function(e) { activeStatusEl = null; throw e; });
                 }
-                ok.on("status", function(text) {
-                    if (activeStatusEl) $("#" + activeStatusEl).text(text);
-                });
+                // The challenge code for the operation in front of the user,
+                // from the library (computed from the same bytes the device
+                // hashes). A composite signature asks TWICE, once per half.
+                var listening = null;
+                function device() {
+                    return okLib.okcrypto().then(function(ok) {
+                        if (listening !== ok) {
+                            listening = ok;
+                            ok.on("challenge", function(e) {
+                                if (activeStatusEl && e && e.digits && e.digits.length) {
+                                    $("#" + activeStatusEl).text("Enter the challenge code on your OnlyKey: " + e.digits.join("  "));
+                                }
+                            });
+                        }
+                        return ok;
+                    });
+                }
 
                 function currentSlot() {
                     var slot = parseInt($("#pgp_slot").val(), 10);
@@ -107,7 +125,9 @@ module.exports = {
                 // changes it between actions.
                 function hardwareKeyForCurrentSlot() {
                     var slot = currentSlot();
-                    return currentPublicKey().then(function(pub) {
+                    return Promise.all([device(), currentPublicKey()]).then(function(results) {
+                        var ok = results[0];
+                        var pub = results[1];
                         compositePgp.registerCompositeHooks(openpgp, ok, slot);
                         return { pub: pub, hwKey: openpgp.createHardwarePrivateKey(pub) };
                     });
