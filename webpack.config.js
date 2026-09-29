@@ -130,19 +130,20 @@ plugins.push(new CspHtmlWebpackPlugin({}, {}));
 
 
 /*
- * node-onlykey-lib - the shared OnlyKey client library this app is moving
- * onto (the in-repo src/onlykey-fido2/onlykey/ library is being orphaned,
- * page by page). Two things webpack 4 needs from it:
+ * node-onlykey-lib - the shared OnlyKey client library this app runs on (it
+ * replaced the in-repo src/onlykey-fido2/ library, which is gone). Two things
+ * webpack 4 needs from it:
  *   - aliases for its public subpaths, because webpack 4 predates package
  *     "exports" (generated from the library's own map, so a new export needs
  *     no edit here);
- *   - babel over it, for the same parser reason as the vendored files below.
+ *   - babel over it: webpack 4's parser does not know the modern syntax it
+ *     and its vendored @noble ship (BigInt literals, optional chaining, class
+ *     fields).
  * node.crypto is left alone: this app's other dependencies already bundle
  * webpack's crypto polyfill, and the library never takes that branch in a
  * browser.
  */
 const okLib = require('node-onlykey-lib/bundler-aliases');
-const nobleCopy = (pkg) => path.join(okLib.root, 'src/vendor/node_modules/@noble', pkg);
 
 module.exports = {
     mode: process.env.NODE_ENV,
@@ -159,34 +160,20 @@ module.exports = {
     plugins: plugins,
     resolve: {
         alias: {
+            // No @noble aliases: this app has no copy of its own any more.
+            // The library's vendored copy (node-onlykey-lib/src/vendor/
+            // VENDORED.md) is the one copy, reached through its subpaths.
             ...okLib.aliases(),
-            // ONE COPY of @noble: the library's vendored tarballs
-            // (node-onlykey-lib/src/vendor/VENDORED.md), not this app's own
-            // 2.2.0 copy - so the app's remaining code and the library run the
-            // same crypto, audited and swapped in one place. The aliases are
-            // still needed while this app's own modules import @noble by bare
-            // name; they go when those modules are orphaned.
-            '@noble/hashes': nobleCopy('hashes'),
-            '@noble/post-quantum': nobleCopy('post-quantum'),
-            '@noble/ciphers': nobleCopy('ciphers'),
-            '@noble/curves': nobleCopy('curves'),
         }
     },
     module: {
         rules: [{
-            // Scoped only to the vendored @noble packages and the vendored
-            // openpgp.js fork - webpack 4's built-in parser can't handle the
-            // modern syntax they ship with (optional chaining, ES2022 class
-            // fields). Deliberately not applied project-wide: this
-            // transpiles at build time only, the committed files in vendor/
-            // stay byte-for-byte unmodified/diffable against their source
-            // (see each vendor dir's VENDORED.md).
+            // Scoped to node-onlykey-lib (its code, its vendored @noble and
+            // its openpgp fork) - webpack 4's built-in parser can't handle the
+            // modern syntax they ship with. Build time only: the library's
+            // vendored files stay byte-for-byte as recorded in its VENDORED.json.
             test: /\.js$/,
-            include: [
-                okLib.root,
-                path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/@noble'),
-                path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/openpgp'),
-            ],
+            include: [okLib.root],
             use: {
                 loader: 'babel-loader',
                 options: {

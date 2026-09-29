@@ -10,19 +10,6 @@ module.exports = [
   /* the gun plugin contains helpers for gun  */
   require("./lib/gun.js"),
   
-  /* the onlykey plugin contains the api and other utilities for other plugins */
-  //
-  // The IN-REPO module, not the node-onlykey package. The plugins here depend
-  // on device methods that only exist in this repo's copy
-  // (derive_xwing_recipient/derive_xwing_decap for age-derive, composite_sign/
-  // composite_decrypt for pgp-pqc), and pointing at the package meant the app
-  // ran a different library than onlykey-testing's Node shims load - so the
-  // tests could pass against code the app never executed. Confirmed live
-  // 2026-08-01: with the package wired up here, /app/age-derive failed with
-  // "ok.derive_xwing_recipient is not a function". One module, exercised by
-  // both sides.
-  require("./onlykey-fido2/plugin.js"),
-  
   /* node-onlykey-lib, the shared library pages are moving onto (service okLib) */
   require("./onlykey-lib/plugin.js"),
   

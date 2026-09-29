@@ -28,6 +28,7 @@ var openpgp = require("node-onlykey-lib/crypto/pgp");
 var classic = require("node-onlykey-lib/crypto").classic;
 var saveAs = require("file-saver").saveAs;
 var JSZip = require("jszip");
+var explainDeviceError = require("./device-errors.js").explainDeviceError;
 
 var SIGN_SLOT = 2;
 var DECRYPT_SLOT = 1;
@@ -67,7 +68,7 @@ module.exports = function createPgpEngine(deps) {
     }
     function _$mode_is(check) { return !!(_$mode() == check); }
 
-    function errorText(err) { return err && err.message ? err.message : String(err); }
+    function errorText(err) { return explainDeviceError(err && err.message ? err.message : String(err)); }
 
     /* A key field: pasted armored text, or something getKey can fetch. */
     function resolveKey(value) {

@@ -24,7 +24,6 @@ module.exports = {
                 if (!init)
                     return page.init(app, $page);
 
-                var onlykeyApi = app.onlykeyApi;
                 var $ = app.$;
 
                 window.fetch('../past_releases/past_releases.json')

@@ -36,8 +36,9 @@ assert.strictEqual(r.noAnswerHint(at('apps.onlykey.io')).url, 'https://apps.crp.
 assert.strictEqual(r.noAnswerHint(at('apps.crp.to')), null);
 assert.strictEqual(r.noAnswerHint(at('onlyagent.app')), null);
 
-const e = require('../src/onlykey-fido2/onlykey/device-errors.js');
+const e = require('../src/onlykey-lib/device-errors.js');
 assert.match(e.explainDeviceError('Error stored key use over FIDO2 not enabled\u0000'), /webcryptpolicy 1/);
 assert.strictEqual(e.explainDeviceError('Error no key set in this slot'), 'Error no key set in this slot');
+assert.match(e.explainDeviceError('the device refused the request: Error stored key use over FIDO2 not enabled'), /webcryptpolicy 1/);
 
 console.log('version-route: all assertions passed');
