@@ -90,8 +90,24 @@ module.exports = {
             /** The composed library (a Rectify app); its services are the API. */
             start: function() {
                 if (!started) {
+                    /*
+                     * THE rpId IS THIS PAGE'S HOSTNAME. A browser asserts only an
+                     * rpId the page's origin belongs to, so the library's default
+                     * (apps.crp.to) is refused outright on apps.onlykey.io - and on
+                     * localhost. Web app 4.0.0 left rpId out of its request, which
+                     * makes the browser use the hostname; this says so explicitly,
+                     * in both places the library keeps one (its ctap and okcrypto's
+                     * list), which must agree. The firmware then admits it or not:
+                     * apps.crp.to and apps.onlykey.io on release builds, any origin
+                     * on a DEBUG build (localhost, in the test kit). Found by the
+                     * kit's browser tier: "the browser will not assert rpId
+                     * apps.crp.to from this page's origin".
+                     */
+                    var rpId = window.location.hostname;
                     started = startBrowser({
                         credentials: window.navigator.credentials,
+                        rpId: rpId,
+                        config: { okcrypto: { rpIds: [rpId] } },
                         beforeRequest: function() {
                             var stepped = okLib.step
                                 ? new Promise(function(resolve) { okLib.step(resolve); })
