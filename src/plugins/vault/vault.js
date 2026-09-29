@@ -260,7 +260,7 @@ var OKSessionCache = (function() {
 
 module.exports = {
     pagesList: pagesList,
-    consumes: ["app"],
+    consumes: ["app", "okLib"],
     provides: ["plugin_vault"],
     setup: function(options, imports, register) {
 
@@ -276,17 +276,21 @@ module.exports = {
                     return page.init(app, $page, pathname);
 
                 var $ = app.$;
-                var onlykey3rd = app.onlykey3rd;
-                // node-onlykey's onlykey3rd() constructor takes no
-                // arguments in the currently-bundled library version -
-                // keytype/press_required are per-call arguments on
-                // derive_public_key/derive_shared_secret themselves, not
-                // bound at construction. `onlykey3rd(1, 0)` is a harmless
-                // no-op, kept to match history.js's still-working call.
-                var ok = onlykey3rd(1, 0);
-
-                ok.on("status", function(msg) { log(msg); });
-                ok.on("error", function(err) { log("OnlyKey error: " + err); });
+                // ON node-onlykey-lib: the derive runs in the library
+                // (okcrypto.deriveSharedSecretFor), over the WebAuthn tunnel.
+                var okLib = app.okLib;
+                var listening = null;
+                function device() {
+                    return okLib.okcrypto().then(function(ok) {
+                        if (listening !== ok) {
+                            listening = ok;
+                            ok.on("challenge", function(e) {
+                                if (e && e.digits && e.digits.length) log("Enter the challenge code on your OnlyKey: " + e.digits.join("  "));
+                            });
+                        }
+                        return ok;
+                    });
+                }
 
                 function log(msg) {
                     var div = document.createElement("div");
@@ -337,15 +341,15 @@ module.exports = {
                     // message above and the device setting bit each maps to
                     // (derived_key_challenge_mode bit 3 vs. REQ_PRESS/
                     // ctap_user_presence_test in ok_extension.cpp).
+                    //
+                    // The PLAIN derive actions, as this app has sent since
+                    // 4.0.0 (the press flag is ignored there): the REQ_PRESS
+                    // variants were a second key domain on v3.0.4, so a vault
+                    // written through one would not open through the other.
+                    // Whether a touch is needed is the device's decision.
                     var KEYTYPE_P256R1 = 1;
-                    return new Promise(function(resolve, reject) {
-                        ok.derive_public_key(phrase, KEYTYPE_P256R1, false, function(err, pubkey) {
-                            if (err) return reject(new Error("derive_public_key: " + err));
-                            ok.derive_shared_secret(phrase, pubkey, KEYTYPE_P256R1, true, function(err2, secret) {
-                                if (err2) return reject(new Error("derive_shared_secret: " + err2));
-                                resolve(secret);
-                            });
-                        });
+                    return device().then(function(ok) {
+                        return ok.deriveSharedSecretFor(phrase, { keytype: KEYTYPE_P256R1 });
                     }).then(function(secret) {
                         var bytes = toBytes(secret);
                         return OKCrypto.deriveAesKey(bytes).then(function(aesKey) {
