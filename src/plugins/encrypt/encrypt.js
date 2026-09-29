@@ -18,7 +18,7 @@ var pagesList = {
 
 module.exports = {
     pagesList: pagesList,
-    consumes: ["app"],
+    consumes: ["app", "okLib"],
     provides: ["plugin_encrypt"],
     setup: function(options, imports, register) {
 
@@ -66,9 +66,11 @@ module.exports = {
 
 
                 var $ = app.$;
-                var onlykeyApi = app.onlykeyApi;
+                // ON node-onlykey-lib: the classic PGP engine and helpers from the
+                // okLib service (src/onlykey-lib/), shaped like the old onlykeyApi.
+                var onlykeyApi = app.okLib.onlykeyApi;
 
-                page.okpgp = app.onlykeyApi.pgp().api();
+                page.okpgp = onlykeyApi.pgp().api();
 
                 if (doInit) {
 

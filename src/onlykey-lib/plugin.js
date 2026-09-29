@@ -142,6 +142,40 @@ module.exports = {
             },
         };
 
+        /*
+         * THE CLASSIC PGP PAGES' VIEW, shaped like the old library's
+         * onlykeyApi service so Encrypt and Decrypt moved by one line each:
+         *   api    - getKey and getAllUrlParams (app utilities, moved as-is),
+         *            connect()/init (this service's connect), and an emitter
+         *            the pages listen on;
+         *   pgp()  - .api() is a new classic PGP engine (pgp-engine.js), the
+         *            old engine's surface on the library's openpgp.
+         */
+        const EventEmitter = require("events");
+        const utils = require("./app-utils.js")(window);
+        const createPgpEngine = require("./pgp-engine.js");
+        const compatApi = new EventEmitter();
+        compatApi.init = false;
+        compatApi.getKey = utils.getKey;
+        compatApi.getAllUrlParams = utils.getAllUrlParams;
+        compatApi.connect = function() {
+            return okLib.okcrypto().then(function() {
+                compatApi.init = true;
+            }).catch(function(err) {
+                compatApi.emit("error", err && err.message ? err.message : String(err));
+            });
+        };
+        okLib.onlykeyApi = {
+            api: compatApi,
+            pgp: function() {
+                return {
+                    api: function() {
+                        return createPgpEngine({ app: app, okLib: okLib, getKey: utils.getKey, window: window });
+                    }
+                };
+            }
+        };
+
         register(null, { okLib: okLib });
     }
 };
