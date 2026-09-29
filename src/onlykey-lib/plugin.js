@@ -145,6 +145,24 @@ module.exports = {
                                 throw new Error(route.reason + ". Taking you there...");
                             }
                             console.info("OnlyKey", okLib.status);
+                            /*
+                             * The header line every page showed before the port
+                             * (onlykey-api.js headermsg, c7c59d6): "OnlyKey
+                             * v3.1.0 Secure Connection Established" - the visible
+                             * sign the key answered, and what the kit's browser
+                             * tier waits for before it drives a page. The port
+                             * dropped it. Built as nodes rather than innerHTML
+                             * so a device-supplied version cannot add markup.
+                             */
+                            var header = document.getElementById("header_messages");
+                            if (header) {
+                                var line = document.createElement("p");
+                                line.className = "text-success";
+                                line.textContent = "OnlyKey " + (okLib.version || "") +
+                                    " Secure Connection Established";
+                                header.appendChild(document.createElement("br"));
+                                header.appendChild(line);
+                            }
                             app.emit("ok-connected", okLib.version);
                             return okcrypto;
                         });
