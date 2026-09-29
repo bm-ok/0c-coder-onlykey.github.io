@@ -7,7 +7,7 @@ var pagesList = {
 
 module.exports = {
     pagesList: pagesList,
-    consumes: ["app", "onlykeyApi"],
+    consumes: ["app", "okLib"],
     provides: ["plugin_index"],
     setup: function(options, imports, register) {
         var fired = false;
@@ -18,8 +18,12 @@ module.exports = {
             setTimeout(function() {
 
                 fired = true;
-                imports.onlykeyApi.api.check(function(asd) {
-                    // console.log(asd)
+                // ON node-onlykey-lib: connecting sets the clock (OKCONNECT
+                // carries the time), announces ok-connected for the status
+                // icon and the notice below, and applies the version route.
+                // A failure is already shown by the status icon.
+                imports.okLib.okcrypto().catch(function(err) {
+                    console.warn("OnlyKey connect:", err && err.message ? err.message : err);
                 });
 
             }, timeout);
@@ -51,11 +55,14 @@ module.exports = {
                 pagesList: pagesList,
                 init: function() {
                     // if(document.hasFocus())//firefox fix, firefox aborts onlykey request when not in focus
-                    if(imports.onlykeyApi.api.extra.getBrowser() !== "Apple")
+                    // Safari runs WebAuthn only from a user gesture, so there
+                    // every request is preceded by a click (okLib.step).
+                    var vendor = (window.navigator && window.navigator.vendor) || "";
+                    if(vendor.indexOf("Apple") === -1)
                         imports.app.on("start", doSetTime.bind(null, 2000));
                     else {
                         // console.log("index_init");
-                        imports.app.onlykeyApi.api.step = function(proceed){
+                        imports.okLib.step = function(proceed){
                             
                             imports.app.bs_modal_dialog.confirm("Continue",
                                 `To continue please click 'Yes' to access OnlyKey via USB`, ["Yes"],

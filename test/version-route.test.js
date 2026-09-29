@@ -1,7 +1,7 @@
 // node test/version-route.test.js
 'use strict';
 const assert = require('assert');
-const r = require('../src/onlykey-fido2/onlykey/version-route.js');
+const r = require('../src/onlykey-lib/version-route.js');
 const at = (hostname, pathname = '/app/decrypt', search = '', hash = '') => ({ hostname, pathname, search, hash });
 
 // The numeric triple decides, not the keyword suffix.

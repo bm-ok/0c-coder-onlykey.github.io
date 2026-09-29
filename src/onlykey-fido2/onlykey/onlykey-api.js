@@ -9,7 +9,7 @@ module.exports = function(imports) {
 
 
   var nacl = imports.nacl;//require("./nacl.js");
-  var versionRoute = require("./version-route.js");
+  var versionRoute = require("../../onlykey-lib/version-route.js");
 
   onlykey_api._status;
   onlykey_api.poll_delay;
