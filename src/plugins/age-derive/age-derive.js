@@ -35,7 +35,7 @@ function bytesToB64(bytes) {
 
 module.exports = {
     pagesList: pagesList,
-    consumes: ["app"],
+    consumes: ["app", "okLib"],
     provides: ["plugin_age-derive"],
     setup: function(options, imports, register) {
 
@@ -47,8 +47,10 @@ module.exports = {
         // itself uses - a top-level require() of age_pqc.js/age_file.js
         // there would throw MODULE_NOT_FOUND before webpack ever runs.
         var init = false;
-        var agePqc = require("../../onlykey-fido2/onlykey/age_pqc.js");
-        var ageFile = require("../../onlykey-fido2/onlykey/age_file.js");
+        // ON node-onlykey-lib (the shared library) - the first page moved off
+        // the in-repo one. The age format, the X-Wing encapsulation and the
+        // device decap all come from the library; nothing here does crypto.
+        var okCrypto = require("node-onlykey-lib/crypto");
         var modeTabs = require("../pages/mode-tabs.js");
         var page = {
             init: function(app, $page, pathname) {
@@ -60,38 +62,44 @@ module.exports = {
                 if (!init)
                     return page.init(app, $page, pathname);
 
-                // See password-generator.js's comment on this same call -
-                // onlykey3rd() takes no arguments in the currently-bundled
-                // library version, kept only to match history.js's call.
-                var onlykey3rd = app.onlykey3rd;
-                var ok = onlykey3rd(1, 0);
+                var okLib = app.okLib;
                 var $ = app.$;
 
-                // The REQ_PRESS opcode variants are gone - one label, one key -
-                // and there is no press_required argument any more. Whether a
-                // confirmation is required now follows from what is being
-                // asked for: a public key never needs one, a shared secret
-                // always does, and the device enforces that itself.
-                //
-                // The challenge code comes from the library, which computes it
-                // from the same [label32 | ct1120] the device hashes. It is
-                // emitted before the chunks go out and cleared when the
-                // operation ends, so the box is only ever showing a code for
-                // the request currently in front of the user. An empty array
-                // means there is no code to show right now - the request is
-                // over, or the digest failed - not that no code is wanted; the
-                // box hides rather than leaving stale digits up.
-                ok.on("challenge", function(code) {
+                // THE CHALLENGE CODE comes from the library, computed from the
+                // same bytes the device hashes, and is emitted before the
+                // request goes out. Deriving a public key never needs one; the
+                // decap always does (the device enforces that itself). The box
+                // is cleared when an operation ends, so it only ever shows the
+                // code for the request in front of the user.
+                function showChallenge(digits) {
                     var box = document.getElementById("challenge_code_box");
                     var out = document.getElementById("challenge_code");
                     if (!box || !out) return;
-                    if (code && code.length) {
-                        out.textContent = code.join("  ");
+                    if (digits && digits.length) {
+                        out.textContent = digits.join("  ");
                         box.style.display = "block";
                     } else {
                         box.style.display = "none";
                     }
-                });
+                }
+
+                // The library, connected to the key - composed and connected on
+                // first use (see src/onlykey-lib/plugin.js). The challenge
+                // listener goes on once per connected okcrypto.
+                var listening = null;
+                function device() {
+                    return okLib.okcrypto().then(function(ok) {
+                        if (listening !== ok) {
+                            listening = ok;
+                            ok.on("challenge", function(e) { showChallenge(e && e.digits); });
+                        }
+                        return ok;
+                    });
+                }
+
+                function errorText(err) {
+                    return "ERROR: " + (err && err.message ? err.message : err);
+                }
 
                 function currentLabel() {
                     return $("#label").val();
@@ -99,27 +107,26 @@ module.exports = {
 
                 $("#label").on("input", function() {
                     var label = currentLabel();
-                    $("#identity_out").val(label ? agePqc.encodeIdentity(label) : "");
+                    $("#identity_out").val(label ? okCrypto.pqc.encodeIdentity(label) : "");
                 });
 
                 $("#encrypt_start").click(function() {
                     var label = currentLabel();
                     var plaintext = $("#plaintext").val();
                     $("#age_file_out").val("");
-                    // The device returns the whole 1216-byte recipient now,
-                    // so there is nothing to assemble from halves here.
-                    ok.derive_xwing_recipient(label, function(error, recipientPk) {
-                        if (error) {
-                            $("#age_file_out").val("ERROR: " + error);
-                            return;
-                        }
-                        var encaps = agePqc.xwingEncapsHost(recipientPk);
-                        var fileBytes = ageFile.encryptAgeFile(
-                            new TextEncoder().encode(plaintext),
-                            { ciphertext: encaps.ciphertext, sharedSecret: encaps.sharedSecret }
-                        );
-                        $("#age_file_out").val(bytesToB64(fileBytes));
-                        $("#identity_out").val(agePqc.encodeIdentity(label));
+                    // The recipient is the whole 1216-byte X-Wing public key the
+                    // device derives for this label; encrypting to it needs no
+                    // device at all.
+                    device().then(function(ok) {
+                        return ok.deviceAge.identity(label).then(function(id) {
+                            var fileBytes = ok.deviceAge.encrypt(new TextEncoder().encode(plaintext), id.recipient);
+                            $("#age_file_out").val(bytesToB64(fileBytes));
+                            $("#identity_out").val(okCrypto.pqc.encodeIdentity(label));
+                        });
+                    }).catch(function(err) {
+                        $("#age_file_out").val(errorText(err));
+                    }).finally(function() {
+                        showChallenge([]);
                     });
                 });
 
@@ -133,23 +140,17 @@ module.exports = {
                         $("#decrypted_out").val("ERROR: invalid base64: " + e.message);
                         return;
                     }
-
-                    ageFile.decryptAgeFile(fileBytes, function(ciphertext) {
-                        return new Promise(function(resolve, reject) {
-                            // One call, and no host-side ML-KEM. The device
-                            // takes the whole X-Wing ciphertext and returns the
-                            // finished 32-byte shared secret, so the recipient
-                            // lookup that used to be needed here (to feed pk_X
-                            // and the seed into splitDecapsulate) is gone.
-                            ok.derive_xwing_decap(label, ciphertext, function(error, ss) {
-                                if (error) { reject(new Error(error)); return; }
-                                resolve(ss);
-                            });
-                        });
+                    // One call: the library parses the file, sends the X-Wing
+                    // ciphertext to the device for the label's key, and opens
+                    // the file with the shared secret that comes back.
+                    device().then(function(ok) {
+                        return ok.deviceAge.decrypt(fileBytes, label);
                     }).then(function(plaintextBytes) {
                         $("#decrypted_out").val(new TextDecoder().decode(plaintextBytes));
                     }).catch(function(err) {
-                        $("#decrypted_out").val("ERROR: " + (err && err.message ? err.message : err));
+                        $("#decrypted_out").val(errorText(err));
+                    }).finally(function() {
+                        showChallenge([]);
                     });
                 });
             }

@@ -23,6 +23,9 @@ module.exports = [
   // both sides.
   require("./onlykey-fido2/plugin.js"),
   
+  /* node-onlykey-lib, the shared library pages are moving onto (service okLib) */
+  require("./onlykey-lib/plugin.js"),
+  
   /* pages plugin is the heart of the app state */
   require("./plugins/pages/pages.js"),
   

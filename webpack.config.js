@@ -129,6 +129,21 @@ for (var i in pageFiles) {
 plugins.push(new CspHtmlWebpackPlugin({}, {}));
 
 
+/*
+ * node-onlykey-lib - the shared OnlyKey client library this app is moving
+ * onto (the in-repo src/onlykey-fido2/onlykey/ library is being orphaned,
+ * page by page). Two things webpack 4 needs from it:
+ *   - aliases for its public subpaths, because webpack 4 predates package
+ *     "exports" (generated from the library's own map, so a new export needs
+ *     no edit here);
+ *   - babel over it, for the same parser reason as the vendored files below.
+ * node.crypto is left alone: this app's other dependencies already bundle
+ * webpack's crypto polyfill, and the library never takes that branch in a
+ * browser.
+ */
+const okLib = require('node-onlykey-lib/bundler-aliases');
+const nobleCopy = (pkg) => path.join(okLib.root, 'src/vendor/node_modules/@noble', pkg);
+
 module.exports = {
     mode: process.env.NODE_ENV,
     entry: [(process.env.NODE_ENV === 'production') ? './src/entry.js' : './src/entry-devel.js'],
@@ -144,17 +159,17 @@ module.exports = {
     plugins: plugins,
     resolve: {
         alias: {
-            // Vendored, not npm-installed - see
-            // src/onlykey-fido2/onlykey/vendor/@noble/VENDORED.md. Needed
-            // because @noble/post-quantum imports @noble/hashes (and,
-            // transitively via _crystals.js, @noble/curves/abstract/fft.js)
-            // via bare specifiers internally - this alias is the only thing
-            // that lets those resolve without modifying the vendored files
-            // themselves.
-            '@noble/hashes': path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/@noble/hashes'),
-            '@noble/post-quantum': path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/@noble/post-quantum'),
-            '@noble/ciphers': path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/@noble/ciphers'),
-            '@noble/curves': path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/@noble/curves'),
+            ...okLib.aliases(),
+            // ONE COPY of @noble: the library's vendored tarballs
+            // (node-onlykey-lib/src/vendor/VENDORED.md), not this app's own
+            // 2.2.0 copy - so the app's remaining code and the library run the
+            // same crypto, audited and swapped in one place. The aliases are
+            // still needed while this app's own modules import @noble by bare
+            // name; they go when those modules are orphaned.
+            '@noble/hashes': nobleCopy('hashes'),
+            '@noble/post-quantum': nobleCopy('post-quantum'),
+            '@noble/ciphers': nobleCopy('ciphers'),
+            '@noble/curves': nobleCopy('curves'),
         }
     },
     module: {
@@ -168,6 +183,7 @@ module.exports = {
             // (see each vendor dir's VENDORED.md).
             test: /\.js$/,
             include: [
+                okLib.root,
                 path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/@noble'),
                 path.resolve(__dirname, 'src/onlykey-fido2/onlykey/vendor/openpgp'),
             ],
